@@ -1,0 +1,57 @@
+#### This notebook goes through:
+# 1) Pacakge loading
+# 2) loading in cellranger output files and preprocessing them for noise with soupx
+# 3) Turn into seurat object and filter out low quality nuclei and doublets 
+
+
+
+# 1) Pacakge loading
+```{r}
+library(Seurat)
+library(SoupX)
+library(monocle)
+library(cowplot)
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(gplots)
+library(limma)
+library(gridExtra)
+```
+
+# 2) loading in cellranger output files and preprocessing them for noise with soupx
+```{r}
+input_directory <- "~/Desktop/Olwin_lab/snRNAseq/cellranger_outputs/"
+output_directory 
+
+AU <- load10X(paste(input_directory, "AU/outs/", sep=""))
+count = autoEstCont(AU)
+out = adjustCounts(count)
+AU.obj <- CreateSeuratObject(counts = out, project = "snRNAseq", min.cells = 3, min.features = 200)
+
+OU <- load10X("~/Desktop/Olwin_lab/snRNAseq/cellranger_outputs/OU/outs/")
+count = autoEstCont(OU)
+out = adjustCounts(count)
+OU.obj <- CreateSeuratObject(counts = out, project = "snRNAseq", min.cells = 3, min.features = 200)
+
+Aday4 <- load10X("~/Desktop/Olwin_lab/snRNAseq/cellranger_outputs/A_day4PI/outs/")
+count = autoEstCont(Aday4, tfidfMin = 0.5, forceAccept = T)
+out = adjustCounts(count)
+Aday4.obj <- CreateSeuratObject(counts = out, project = "snRNAseq", min.cells = 3, min.features = 200)
+
+Aday7 <- load10X("~/Desktop/Olwin_lab/snRNAseq/cellranger_outputs/A_day7PI/outs/")
+count = autoEstCont(Aday7, tfidfMin = 0.5, forceAccept = T)
+out = adjustCounts(count)
+Aday7.obj <- CreateSeuratObject(counts = out, project = "snRNAseq", min.cells = 3, min.features = 200)
+
+Oday4 <- load10X("~/Desktop/Olwin_lab/snRNAseq/cellranger_outputs/O_day4PI/outs/")
+count = autoEstCont(Oday4,tfidfMin = 0.5, forceAccept = T)
+out = adjustCounts(count)
+Oday4.obj <- CreateSeuratObject(counts = out, project = "snRNAseq", min.cells = 3, min.features = 200)
+
+Oday7 <- load10X("~/Desktop/Olwin_lab/snRNAseq/cellranger_outputs/O_day7PI/outs/")
+count = autoEstCont(Oday7,tfidfMin = 0.5, forceAccept = T)
+out = adjustCounts(count)
+Oday7.obj <- CreateSeuratObject(counts = out, project = "snRNAseq", min.cells = 3, min.features = 200)
+```
+

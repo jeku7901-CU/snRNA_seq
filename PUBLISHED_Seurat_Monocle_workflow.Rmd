@@ -4,7 +4,6 @@
 # 3) Turn into seurat object and filter out low quality nuclei and doublets 
 
 
-
 ### 1) Pacakge loading
 ```{r}
 library(Seurat)
@@ -102,8 +101,6 @@ Aday4.obj <- subset(Aday4.obj, subset = nFeature_RNA > 200 & nFeature_RNA < 2500
 Oday4.obj <- subset(Oday4.obj, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < 5)
 Aday7.obj <- subset(Aday7.obj, subset = nFeature_RNA > 200 & nFeature_RNA < 3000 & percent.mt < 2) # Changed nFeature_RNA and percent.mt
 Oday7.obj <- subset(Oday7.obj, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < .2) # Changed percent.mt -- also use 0.2
-
-#save.image("~/Desktop/Olwin_lab/snRNAseq/.../seurat_soupx_raw_objects_no_mt.RData")
 ```
 
 ### Post-filtering violin QC plots
@@ -115,4 +112,243 @@ VlnPlot(Aday4.obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), nco
 VlnPlot(Aday7.obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
 VlnPlot(Oday7.obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
 ```
+
+### Integrating all experiments together - first involves merging, then using the standard integration workflow in seurat
+
+## Merging
+```{r}
+all.nuclear.merged <- merge(AU.obj, OU.obj)
+all.nuclear.merged <- merge(all.nuclear.merged, Aday4.obj)
+all.nuclear.merged <- merge(all.nuclear.merged, Oday4.obj)
+all.nuclear.merged <- merge(all.nuclear.merged, Aday7.obj)
+all.nuclear.merged <- merge(all.nuclear.merged, Oday7.obj)
+```
+
+## Integration anchors
+```{r}
+list1 <- SplitObject(all.nuclear.merged, split.by = "condition.id")
+
+anchors1 <- FindIntegrationAnchors(list1, dims = 1:20, anchor.features = 20000)
+
+all.nuclear.integrated <- IntegrateData(anchors1, dims = 1:20 )
+```
+
+## All nuclei data combined (NOT subsetted for muscle nuclei)
+```{r}
+umap.function.integrated <- function(x, dims, n.neighbors, min.dist, resolution) 
+    {
+    DefaultAssay(x) <- "integrated"
+    x <- ScaleData(x, verbose = FALSE)
+    x <- RunPCA(x, npcs = 30, verbose = FALSE)
+    x <- RunUMAP(x, reduction = "pca",  n.neighbors = 5, min.dist = .5, dims = dims) 
+    x <- FindNeighbors(x, reduction = "pca", dims = dims)
+    x <- FindClusters(x, resolution = 0.5)
+}
+
+all.nuclear.integrated.umap <- umap.function.integrated(all.nuclear.integrated , n.neighbors = 1, min.dist = .09, dims = 1:30, resolution = 8)
+
+
+
+genelist <- c("Pax7", "Ttn", 'Tmem38a', 'Myh1', "Myh2", "Myh4", "Myh3", "Myh9", "Ache", "Col22a1", 'Pdgfra','Cacna1c' , "Adgrf5")
+DimPlot(all.nuclear.integrated.umap, pt.size = 2, label = T)
+DimPlot(all.nuclear.integrated.umap, pt.size = 2, group.by = 'cell.id')
+FeaturePlot(all.nuclear.integrated.umap, features = genelist,  pt.size = 2)
+```
+
+
+## Naming nuclear clusters by their identity as either myogenic or other - 4 clusters total
+```{r}
+all.nuclear.integrated.umap.named <- all.nuclear.integrated.umap
+
+new.cluster.ids <- c("Myogenic", #0
+                     "Myogenic", #1
+                     "Myogenic", #2
+                     "Myogenic", #3
+                     "Myogenic", #4
+                     "Myogenic",#5
+                     "Myogenic",#6
+                     "FAPs/immune", #7
+                     "Myogenic", #8
+                     "Smooth Muscle", #9
+                     "Endothelial" ,#10
+                     "Myogenic", #11
+                     "Myogenic", #12
+                     "Myogenic") #13
+
+names(new.cluster.ids) <- levels(all.nuclear.integrated.umap.named)
+all.nuclear.integrated.umap.named <- RenameIdents(all.nuclear.integrated.umap.named, new.cluster.ids)
+
+col.vec <- c("firebrick", "darkgoldenrod1", "forestgreen", "blue", "chocolate1", "black", "gray48")
+
+DimPlot(all.nuclear.integrated.umap.named, pt.size = 2, label = F, cols = col.vec)
+```
+
+## Plotting umap clusters by aged or adult
+```{r}
+DimPlot(all.nuclear.integrated.umap.named, pt.size = .5, label = F, group.by = 'condition.id', cols = c("black", "red"))
+```
+
+
+### ### ### ### Filtering out non-myogenic nuclei from original files & running monocle ### ### ### ### ### 
+
+## Filtering out non-myogenic nuclei and UMAP
+```{r}
+muscle.cells.1 <- subset(AU.obj, Pax7 > 0 | Myod1 > 0 | Myog > 0 | Ckm > 0 |Mylk2 > 0)
+muscle.cells.2 <- subset(OU.obj, Pax7 > 0 | Myod1 > 0 | Myog > 0 | Ckm > 0 |Mylk2 > 0)
+muscle.cells.3 <- subset(Aday4.obj, Pax7 > 0 | Myod1 > 0 | Myog > 0 | Ckm > 0 |Mylk2 > 0)
+muscle.cells.4 <- subset(Oday4.obj, Pax7 > 0 | Myod1 > 0 | Myog > 0 | Ckm > 0 |Mylk2 > 0)
+muscle.cells.5 <- subset(Aday7.obj, Pax7 > 0 | Myod1 > 0 | Myog > 0 | Ckm > 0 |Mylk2 > 0)
+muscle.cells.6 <- subset(Oday7.obj, Pax7 > 0 | Myod1 > 0 | Myog > 0 | Ckm > 0 |Mylk2 > 0)
+
+
+all.nuclear.subset.seurat <- merge(muscle.cells.1, muscle.cells.2)
+all.nuclear.subset.seurat <- merge(all.nuclear.subset.seurat, muscle.cells.3)
+all.nuclear.subset.seurat <- merge(all.nuclear.subset.seurat, muscle.cells.4)
+all.nuclear.subset.seurat <- merge(all.nuclear.subset.seurat, muscle.cells.5)
+all.nuclear.subset.seurat <- merge(all.nuclear.subset.seurat, muscle.cells.6)
+
+umap.function.standard <- function(x, dims) 
+    {
+    x <- NormalizeData(x, normalization.method = "LogNormalize", scale.factor = 10000)
+    x.rownames <- rownames(x)
+    DefaultAssay(x) <- "RNA"
+    x <- ScaleData(x, features = x.rownames, verbose = FALSE)
+    x <- FindVariableFeatures(x, selection.method = "vst", nfeatures = 2000)
+    x <- RunPCA(x, npcs = 30, verbose = FALSE)
+    x <- RunUMAP(x, reduction = "pca",  n.neighbors = 5, min.dist = .5, dims = dims) # Add these arguments into function up top? 
+    x <- FindNeighbors(x, reduction = "pca", dims = dims)
+    x <- FindClusters(x, resolution = 0.5)
+}
+
+all.nuclear.subset.umap <- umap.function.standard(all.nuclear.subset.seurat, dims = 1:20)
+
+DimPlot(all.nuclear.subset.umap, pt.size = 2, label = T)
+DimPlot(all.nuclear.subset.umap, pt.size = 2, group.by = 'cell.id')
+
+```
+
+## Making a celltype hierachy (cth) for Monocle - I don't really end up using this at all, its just a necessary object for monocle pipeline
+```{r}
+x <- all.nuclear.subset.umap
+data <- as(as.matrix(x@assays$RNA@data), 'sparseMatrix') 
+pd <- new('AnnotatedDataFrame', data = x@meta.data)
+fData <- data.frame(gene_short_name = row.names(data), row.names = row.names(data))
+fd <- new('AnnotatedDataFrame', data = fData)
+x <- newCellDataSet(data,phenoData = pd,featureData = fd,lowerDetectionLimit = 0.5,expressionFamily = negbinomial.size())
+
+pax7_id <- row.names(subset(fData(x), gene_short_name == "Pax7"))
+myf5_id <- row.names(subset(fData(x), gene_short_name == "Myf5"))
+myog_id <- row.names(subset(fData(x), gene_short_name == "Myog"))
+myod_id <- row.names(subset(fData(x), gene_short_name == "Myod1"))
+
+myh1_id <- row.names(subset(fData(x), gene_short_name == "Myh1"))
+myh2_id <- row.names(subset(fData(x), gene_short_name == "Myh2")) 
+myh4_id <- row.names(subset(fData(x), gene_short_name == "Myh4")) 
+
+tmem_id <- row.names(subset(fData(x), gene_short_name == "Tmem38a")) 
+
+
+cth <- newCellTypeHierarchy()
+cth <- addCellType(cth, "MuSC", classify_func = function(x) { x[pax7_id,] > 0  | x[myf5_id,] > 0 })
+cth <- addCellType(cth, "early", classify_func = function(x) { x[myod_id,] > 0 | x[myog_id,] > 0 })
+cth <- addCellType(cth, "Myonuclei", classify_func = function(x){ x[myh1_id,] > 0 | x[myh4_id,] > 0 | x[tmem_id,] > 0})
+```
+
+### Running monocle pipeline on seurat object and cth to create trajectory 
+```{r}
+monocle.function <- function(seurat.merged.obj, cth)
+{
+      data <- as(as.matrix(seurat.merged.obj@assays$RNA@data), 'sparseMatrix') 
+      pd <- new('AnnotatedDataFrame', data = seurat.merged.obj@meta.data)
+      fData <- data.frame(gene_short_name = row.names(data), row.names = row.names(data))
+      fd <- new('AnnotatedDataFrame', data = fData)
+      monocle.obj <- newCellDataSet(data,phenoData = pd,
+                                    featureData = fd,
+                                    lowerDetectionLimit = 0.5,
+                                    expressionFamily = negbinomial.size())
+
+      monocle.obj <- classifyCells(monocle.obj, cth, 0.1)
+      print(table(pData(monocle.obj)$CellType))
+      
+      monocle.obj <- detectGenes(monocle.obj, min_expr = 0.1)
+      expressed_genes.monocle.obj <- row.names(subset(fData(monocle.obj), num_cells_expressed >= 5))
+
+      monocle.obj <- estimateSizeFactors(monocle.obj)
+      monocle.obj <- estimateDispersions(monocle.obj)
+
+      marker_diff.monocle.obj <- markerDiffTable(monocle.obj[expressed_genes.monocle.obj,], 
+                                                 cth, 
+                                                 residualModelFormulaStr = "~num_genes_expressed")
+
+      diff_test_res.monocle.obj <- differentialGeneTest(monocle.obj[expressed_genes.monocle.obj,],
+                                                        fullModelFormulaStr = "~CellType")
+      
+      ordering_genes.monocle.obj <- row.names(subset(diff_test_res.monocle.obj, qval < 0.01))
+      
+      monocle.obj <- setOrderingFilter(monocle.obj, ordering_genes.monocle.obj)
+      
+      monocle.obj <- reduceDimension(monocle.obj, max_components = 3, num_dim = 3,
+        norm_method = 'log',
+        reduction_method = 'tSNE',
+        residualModelFormulaStr = "~CellType + num_genes_expressed",
+        verbose = T, 
+        check_duplicates = F)
+      
+      monocle.obj <- clusterCells(monocle.obj, num_clusters = 2)
+
+      monocle.obj <- reduceDimension(monocle.obj, 
+                                     max_components = 2,
+                                     method = 'DDRTree',
+                                     auto_param_selection = F)
+      
+      monocle.obj <- orderCells(monocle.obj, reverse = TRUE)
+      
+      monocle.new.name <<- monocle.obj 
+}
+
+monocle.function(all.nuclear.subset.umap, cth)
+
+all.nuclear.subset.monocle <- monocle.new.name
+```
+
+## Plotting trajectory with a few marker genes
+```{r}
+gene.list <- c("Tmem38a", "Musk", "Ncam1", "Pax7", "Ttn", "Ache")
+plot_cell_trajectory(all.nuclear.subset.monocle, color_by = "CellType")
+plot_cell_trajectory(all.nuclear.subset.monocle, color_by = "cell.id") 
+plot_cell_trajectory(all.nuclear.subset.monocle, color_by = "Pseudotime")
+plot_cell_trajectory(all.nuclear.subset.monocle, markers = gene.list, show_branch_points = F, use_color_gradient = TRUE)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 

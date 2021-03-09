@@ -1,0 +1,69 @@
+### Advanced pseudotime analysis in seurat and monocle
+
+
+
+### Reading in objects from previous notebook
+```{r}
+load(file = pate(output_directory, "filename.Rdata"))
+```
+
+### Adding metadata inferred by seurat back into seurat object 
+```{r}
+all.nuclear.subset.umap$state.num <- all.nuclear.subset.monocle@phenoData@data[['State']]
+all.nuclear.subset.umap$pseudotime <- all.nuclear.subset.monocle@phenoData@data[['Pseudotime']]
+```
+
+### Using "state"-labeled trajcetory plot from previous notebook to determine which states are associated with which major branches of the trajectory 
+```{r}
+branch1.ind <- which(as.numeric(as.vector(all.nuclear.subset.monocle@phenoData@data[['State']])) == 1)
+branch2.ind <- which(as.numeric(as.vector(all.nuclear.subset.monocle@phenoData@data[['State']])) > 51)
+branch3.ind <- which(as.numeric(as.vector(all.nuclear.subset.monocle@phenoData@data[['State']])) > 1 & as.numeric(as.vector(all.nuclear.subset.monocle@phenoData@data[['State']])) < 52)
+
+
+branch1.df <- cbind(branch1.ind, rep("branch1", length(branch1.ind)))
+branch2.df <- cbind(branch2.ind, rep("branch2", length(branch2.ind)))
+branch3.df <- cbind(branch3.ind, rep("branch3", length(branch3.ind)))
+
+colnames(branch1.df) <- c("ind", "nuc.type")
+colnames(branch2.df) <- c("ind", "nuc.type")
+colnames(branch3.df) <- c("ind", "nuc.type")
+
+branch1.df <- as.data.frame(branch1.df)
+branch2.df <- as.data.frame(branch2.df)
+branch3.df <- as.data.frame(branch3.df)
+
+branch1.2.3.df <- rbind(branch1.df, branch2.df, branch3.df)
+
+branch1.2.3.df.sorted <- branch1.2.3.df[order(as.numeric(as.vector(branch1.2.3.df$ind))),]
+
+all.nuclear.subset.umap$nuc.type <- branch1.2.3.df.sorted$nuc.type
+all.nuclear.subset.monocle$nuc.type <- branch1.2.3.df.sorted$nuc.type
+all.nuclear.subset.monocle$condition.id <- condition.id.vec 
+```
+
+
+### Labeling trajectory plot by aged or adult nuclei 
+```{r}
+pbuild <- plot_cell_trajectory(all.nuclear.subset.monocle, color_by = "condition.id", show_state_number = F, show_branch_points = F )
+
+
+UmapCDS2 <- data.frame(pbuild$data$sample_name, 
+                       dim1 = pbuild$data$data_dim_1, 
+                       dim2 = pbuild$data$data_dim_2, 
+                       dim3 = pbuild$data$nuc.type, 
+                       dim4 = pbuild$data$condition.id,
+                       dim5 = pbuild$data$Pseudotime,
+                       row.names = 1)
+
+UmapCDS2[1:100,]
+
+data <- UmapCDS2[sample(1:nrow(UmapCDS2)), ] ### Randomly order the nuclei, otherwise all the aged are on top because they all come second in the data.frame
+
+ggplot(data, aes(x = dim1, y = dim2)) + geom_point(aes(fill = dim4), stroke = .5, shape = 21, size = 9, alpha = 0.9, color = "gray21") + scale_fill_manual(values = c("black", "firebrick3")) + theme_classic()
+
+
+```
+
+
+
+

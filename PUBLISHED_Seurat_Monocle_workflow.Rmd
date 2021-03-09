@@ -5,7 +5,7 @@
 
 
 
-# 1) Pacakge loading
+### 1) Pacakge loading
 ```{r}
 library(Seurat)
 library(SoupX)
@@ -19,7 +19,8 @@ library(limma)
 library(gridExtra)
 ```
 
-# 2) loading in cellranger output files and preprocessing them for noise with soupx
+### 2) loading in cellranger output files and preprocessing them for noise with soupx and creating seurat objects from them 
+## "A" stands for "adult" and "O" stands for "Old" or "aged" as used for everything below
 ```{r}
 input_directory <- "~/Desktop/Olwin_lab/snRNAseq/cellranger_outputs/"
 output_directory 
@@ -29,29 +30,89 @@ count = autoEstCont(AU)
 out = adjustCounts(count)
 AU.obj <- CreateSeuratObject(counts = out, project = "snRNAseq", min.cells = 3, min.features = 200)
 
-OU <- load10X("~/Desktop/Olwin_lab/snRNAseq/cellranger_outputs/OU/outs/")
+OU <- load10X(paste(input_directory, "OU/outs/", sep=""))
 count = autoEstCont(OU)
 out = adjustCounts(count)
 OU.obj <- CreateSeuratObject(counts = out, project = "snRNAseq", min.cells = 3, min.features = 200)
 
-Aday4 <- load10X("~/Desktop/Olwin_lab/snRNAseq/cellranger_outputs/A_day4PI/outs/")
+Aday4 <- load10X(paste(input_directory, "Aday4/outs/", sep=""))
 count = autoEstCont(Aday4, tfidfMin = 0.5, forceAccept = T)
 out = adjustCounts(count)
 Aday4.obj <- CreateSeuratObject(counts = out, project = "snRNAseq", min.cells = 3, min.features = 200)
 
-Aday7 <- load10X("~/Desktop/Olwin_lab/snRNAseq/cellranger_outputs/A_day7PI/outs/")
+Aday7 <- load10X(paste(input_directory, "Aday7/outs/", sep=""))
 count = autoEstCont(Aday7, tfidfMin = 0.5, forceAccept = T)
 out = adjustCounts(count)
 Aday7.obj <- CreateSeuratObject(counts = out, project = "snRNAseq", min.cells = 3, min.features = 200)
 
-Oday4 <- load10X("~/Desktop/Olwin_lab/snRNAseq/cellranger_outputs/O_day4PI/outs/")
+Oday4 <- load10X(paste(input_directory, "Oday4/outs/", sep=""))
 count = autoEstCont(Oday4,tfidfMin = 0.5, forceAccept = T)
 out = adjustCounts(count)
 Oday4.obj <- CreateSeuratObject(counts = out, project = "snRNAseq", min.cells = 3, min.features = 200)
 
-Oday7 <- load10X("~/Desktop/Olwin_lab/snRNAseq/cellranger_outputs/O_day7PI/outs/")
+Oday7 <- load10X(paste(input_directory, "Oday7/outs/", sep=""))
 count = autoEstCont(Oday7,tfidfMin = 0.5, forceAccept = T)
 out = adjustCounts(count)
 Oday7.obj <- CreateSeuratObject(counts = out, project = "snRNAseq", min.cells = 3, min.features = 200)
+```
+
+### Adding metadata to seurat objects
+```{r}
+AU.obj@meta.data$cell.id <- 'AU'
+OU.obj@meta.data$cell.id <- 'OU'
+Aday4.obj@meta.data$cell.id <- 'Aday4'
+Aday7.obj@meta.data$cell.id <- 'Aday7'
+Oday4.obj@meta.data$cell.id <- 'Oday4'
+Oday7.obj@meta.data$cell.id <- 'Oday7'
+
+AU.obj@meta.data$condition.id <- 'Adult'
+OU.obj@meta.data$condition.id <- 'Aged'
+Aday4.obj@meta.data$condition.id <- 'Adult'
+Aday7.obj@meta.data$condition.id <- 'Adult'
+Oday4.obj@meta.data$condition.id <- 'Aged'
+Oday7.obj@meta.data$condition.id <- 'Aged'
+```
+
+### Violin QC plots prior to filtering
+```{r}
+AU.obj[["percent.mt"]] <- PercentageFeatureSet(AU.obj, pattern = "mt-")
+VlnPlot(AU.obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+
+OU.obj[["percent.mt"]] <- PercentageFeatureSet(OU.obj, pattern = "mt-")
+VlnPlot(OU.obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+
+Oday4.obj[["percent.mt"]] <- PercentageFeatureSet(Oday4.obj, pattern = "mt-")
+VlnPlot(Oday4.obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+
+Aday4.obj[["percent.mt"]] <- PercentageFeatureSet(Aday4.obj, pattern = "mt-")
+VlnPlot(Aday4.obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+
+Aday7.obj[["percent.mt"]] <- PercentageFeatureSet(Aday7.obj, pattern = "mt-")
+VlnPlot(Aday7.obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+
+Oday7.obj[["percent.mt"]] <- PercentageFeatureSet(Oday7.obj, pattern = "mt-")
+VlnPlot(Oday7.obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+```
+
+### Cleaning/filtering data
+```{r}
+AU.obj <- subset(AU.obj, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < 5)
+OU.obj <- subset(OU.obj, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < 5)
+Aday4.obj <- subset(Aday4.obj, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < 5)
+Oday4.obj <- subset(Oday4.obj, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < 5)
+Aday7.obj <- subset(Aday7.obj, subset = nFeature_RNA > 200 & nFeature_RNA < 3000 & percent.mt < 2) # Changed nFeature_RNA and percent.mt
+Oday7.obj <- subset(Oday7.obj, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < .2) # Changed percent.mt -- also use 0.2
+
+#save.image("~/Desktop/Olwin_lab/snRNAseq/.../seurat_soupx_raw_objects_no_mt.RData")
+```
+
+### Post-filtering violin QC plots
+```{r}
+VlnPlot(AU.obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+VlnPlot(OU.obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+VlnPlot(Oday4.obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+VlnPlot(Aday4.obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+VlnPlot(Aday7.obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+VlnPlot(Oday7.obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
 ```
 

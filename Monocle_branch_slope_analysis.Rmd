@@ -1,0 +1,436 @@
+### Manuscript: Myonuclear maturation dynamics in aged and adult regenerating mouse skeletal muscle
+
+### This R notebook goes through the the generation of a pseudotime trajectory from a Seurat object and more in-dept analysis of the branches and slope calculation. 
+
+### Monocle main function for generating pseudotime trajectories
+```{r}
+main.function <- function(seurat.merged.obj, cth)
+{
+      data <- as(as.matrix(seurat.merged.obj@assays$RNA@data), 'sparseMatrix') 
+      pd <- new('AnnotatedDataFrame', data = seurat.merged.obj@meta.data)
+      fData <- data.frame(gene_short_name = row.names(data), row.names = row.names(data))
+      fd <- new('AnnotatedDataFrame', data = fData)
+      monocle.obj <- newCellDataSet(data,phenoData = pd,
+                                    featureData = fd,
+                                    lowerDetectionLimit = 0.5,
+                                    expressionFamily = negbinomial.size())
+
+      monocle.obj <- classifyCells(monocle.obj, cth, 0.1)
+      print(table(pData(monocle.obj)$CellType))
+      
+      monocle.obj <- detectGenes(monocle.obj, min_expr = 0.1)
+      expressed_genes.monocle.obj <- row.names(subset(fData(monocle.obj), num_cells_expressed >= 5))
+
+      monocle.obj <- estimateSizeFactors(monocle.obj)
+      monocle.obj <- estimateDispersions(monocle.obj)
+
+      marker_diff.monocle.obj <- markerDiffTable(monocle.obj[expressed_genes.monocle.obj,], 
+                                                 cth, 
+                                                 residualModelFormulaStr = "~num_genes_expressed")
+
+      diff_test_res.monocle.obj <- differentialGeneTest(monocle.obj[expressed_genes.monocle.obj,],
+                                                        fullModelFormulaStr = "~CellType")
+      
+      ordering_genes.monocle.obj <- row.names(subset(diff_test_res.monocle.obj, qval < 0.01))
+      
+      monocle.obj <- setOrderingFilter(monocle.obj, ordering_genes.monocle.obj)
+      
+      monocle.obj <- reduceDimension(monocle.obj, max_components = 3, num_dim = 3,
+        norm_method = 'log',
+        reduction_method = 'tSNE',
+        residualModelFormulaStr = "~CellType + num_genes_expressed",
+        verbose = T, 
+        check_duplicates = F)
+      
+      monocle.obj <- clusterCells(monocle.obj, num_clusters = 2)
+
+      monocle.obj <- reduceDimension(monocle.obj, 
+                                     max_components = 2,
+                                     method = 'DDRTree',
+                                     auto_param_selection = F)
+      
+      monocle.obj <- orderCells(monocle.obj, reverse = TRUE)
+      
+      monocle.new.name <<- monocle.obj 
+}
+```
+
+### Constructing a cth - this is before running the actual monocle function (next chunk)
+```{r}
+x <- processed.seurat.obj
+data <- as(as.matrix(x@assays$RNA@data), 'sparseMatrix') 
+pd <- new('AnnotatedDataFrame', data = x@meta.data)
+fData <- data.frame(gene_short_name = row.names(data), row.names = row.names(data))
+fd <- new('AnnotatedDataFrame', data = fData)
+x <- newCellDataSet(data,phenoData = pd,featureData = fd,lowerDetectionLimit = 0.5,expressionFamily = negbinomial.size())
+
+### These designations are essentially useless - Monocle just requires that something be inputed as a cth
+pax7_id <- row.names(subset(fData(x), gene_short_name == "Pax7"))
+myf5_id <- row.names(subset(fData(x), gene_short_name == "Myf5"))
+myog_id <- row.names(subset(fData(x), gene_short_name == "Myog"))
+myod_id <- row.names(subset(fData(x), gene_short_name == "Myod1"))
+myh1_id <- row.names(subset(fData(x), gene_short_name == "Myh1"))
+myh2_id <- row.names(subset(fData(x), gene_short_name == "Myh2")) 
+myh4_id <- row.names(subset(fData(x), gene_short_name == "Myh4")) 
+tmem_id <- row.names(subset(fData(x), gene_short_name == "Tmem38a")) 
+
+cth <- newCellTypeHierarchy()
+cth <- addCellType(cth, "MuSC", classify_func = function(x) { x[pax7_id,] > 0  | x[myf5_id,] > 0 })
+cth <- addCellType(cth, "early", classify_func = function(x) { x[myod_id,] > 0 | x[myog_id,] > 0 })
+cth <- addCellType(cth, "Myonuclei", classify_func = function(x){ x[myh1_id,] > 0 | x[myh4_id,] > 0 | x[tmem_id,] > 0})
+```
+
+### Running monocle function (from top of page)
+```{r}
+main.function(processed.seurat.obj, cth)
+monocle.obj <- monocle.new.name
+```
+
+```{r}
+gene.list <- c("Tmem38a", "Musk", "Ncam1", "Pax7", "Ttn", "Ache")
+plot_cell_trajectory(monocle.obj, color_by = "CellType")
+plot_cell_trajectory(monocle.obj, color_by = "cell.id") 
+plot_cell_trajectory(monocle.obj, color_by = "Pseudotime")
+plot_cell_trajectory(monocle.obj, markers = gene.list, show_branch_points = F, use_color_gradient = TRUE)
+```
+
+### Designating branches by State designations - These were determined by observing plots from previous chunks
+```{r}
+branch1.ind <- which(as.numeric(as.vector(monocle.obj@phenoData@data[['State']])) == 1)
+branch2.ind <- which(as.numeric(as.vector(monocle.obj@phenoData@data[['State']])) > 51)
+branch3.ind <- which(as.numeric(as.vector(monocle.obj@phenoData@data[['State']])) > 1 & as.numeric(as.vector(all.nuclear.subset.monocle@phenoData@data[['State']])) < 52)
+
+
+branch1.df <- cbind(branch1.ind, rep("branch1", length(branch1.ind)))
+branch2.df <- cbind(branch2.ind, rep("branch2", length(branch2.ind)))
+branch3.df <- cbind(branch3.ind, rep("branch3", length(branch3.ind)))
+
+colnames(branch1.df) <- c("ind", "nuc.type")
+colnames(branch2.df) <- c("ind", "nuc.type")
+colnames(branch3.df) <- c("ind", "nuc.type")
+
+branch1.df <- as.data.frame(branch1.df)
+branch2.df <- as.data.frame(branch2.df)
+branch3.df <- as.data.frame(branch3.df)
+
+branch1.2.3.df <- rbind(branch1.df, branch2.df, branch3.df)
+
+branch1.2.3.df.sorted <- branch1.2.3.df[order(as.numeric(as.vector(branch1.2.3.df$ind))),]
+
+processed.seurat.obj$nuc.type <- branch1.2.3.df.sorted$nuc.type
+monocle.obj$nuc.type <- branch1.2.3.df.sorted$nuc.type
+```
+
+### Counting nuclei by branch 
+```{r}
+nuc.type.nuclei <- processed.seurat.obj[['nuc.type']]
+condition.nuclei <- processed.seurat.obj[['condition.id']]
+df <- data.frame(nuc.type.nuclei, condition.nuclei)
+table(df)
+```
+
+
+### ### ### ### ### ### ### ### ### 
+### FAP/myogenic progenitor analysis
+```{r}
+tmp1 <- which(as.numeric(as.vector(monocle.obj@phenoData@data[['Pseudotime']])) <= 5)
+tmp2 <- which(as.numeric(as.vector(monocle.obj@phenoData@data[['Pseudotime']])) > 5)
+
+tmp1.names <- rep("progenitors", length(tmp1))
+tmp2.names <- rep("everythingelse", length(tmp2))
+
+tmp1.df <- as.data.frame(cbind(tmp1, tmp1.names))
+tmp2.df <- as.data.frame(cbind(tmp2, tmp2.names))
+
+colnames(tmp1.df) <- c("val", "name")
+colnames(tmp2.df) <- c("val", "name")
+
+tmp1.merged <- as.data.frame(rbind(tmp1.df, tmp2.df))
+
+tmp2.merged <- tmp1.merged[order(as.numeric(as.vector(tmp1.merged$val)), decreasing = FALSE),]
+
+processed.seurat.obj$FAP.analysis <- tmp2.merged$name
+monocle.obj@phenoData@data[["FAP.analysis"]] <- processed.seurat.obj$FAP.analysis
+
+plot_cell_trajectory(monocle.obj, color_by = "Pseudotime", pt.size = 7, )
+plot_cell_trajectory(monocle.obj, color_by = "FAP.analysis", pt.size = 7)
+```
+
+### Using FindMarkers from Seurat to identify genes enriched in FAP/myogenic progenitor nuclei
+```{r}
+processed.seurat.obj <- SetIdent(processed.seurat.obj, value = "FAP.analysis")
+
+markers <- FindMarkers(processed.seurat.obj, ident.1 = "progenitors")
+
+markers %>% top_n(100, wt = avg_logFC) 
+
+table.markers <- markers[which(markers$p_val_adj < 0.05 & markers$avg_logFC > 0),]
+```
+
+### ### ### ### ### ### ### ### ### 
+### lncRNA analysis
+
+# Constructing dataframe of pseudotime of individual lncRNA expression per individual nuclei
+```{r}
+pseudotime.experssion.df.function <- function(gene)
+{
+    gene.name <- paste(gene, "$", sep = "")
+    df <- cbind(monocle.obj$Pseudotime, monocle.obj$condition.id, monocle.obj$State, monocle.obj@assayData$exprs[grep(gene.name, row.names(monocle.obj)),]) 
+    
+    df <- as.data.frame(df)
+    colnames(df) <- c("pseudotime",  'condition.id', "state", "expression")
+    
+    row.names(df) <- NULL
+    
+    df.scatter <- cbind(as.character(df$condition.id), as.numeric(as.vector(df$pseudotime)), as.numeric(as.vector(df$expression)))
+    df.scatter <- df.scatter[which(df.scatter[,3] > 0),]  
+    df.scatter <- df.scatter[which(as.numeric(as.vector(df.scatter[,2])) < 71),]
+    colnames(df.scatter) <- c('conditionid', "pseudotime", "expression")
+    
+    df.scatter <<- as.data.frame(df.scatter)
+}
+
+pseudotime.experssion.df.function("Runx1")
+runx1.df.scatter <- df.scatter
+
+pseudotime.experssion.df.function("Ncam1")
+Ncam1.df.scatter <- df.scatter
+
+pseudotime.experssion.df.function("Myh3")
+Myh3.df.scatter <- df.scatter
+
+pseudotime.experssion.df.function("Myh8")
+Myh8.df.scatter <- df.scatter
+
+pseudotime.experssion.df.function("Mirg")
+Mirg.df.scatter <- df.scatter
+
+pseudotime.experssion.df.function("Meg3")
+Meg3.df.scatter <- df.scatter
+
+pseudotime.experssion.df.function("Rian")
+Rian.df.scatter <- df.scatter
+```
+
+### Plotting
+```{r}
+pdf(file = "path/filename.pdf" ,width = 9, height = 6)
+
+ggplot() + 
+  geom_smooth(data = runx1.df.scatter, aes( x = as.numeric(as.vector(pseudotime)), y = as.numeric(as.vector(expression))), size = 4, color = "gray3") + 
+  geom_smooth(data = Ncam1.df.scatter, aes( x = as.numeric(as.vector(pseudotime)), y = as.numeric(as.vector(expression))), size = 4, color = "gray3") + 
+  geom_smooth(data = Myh3.df.scatter, aes( x = as.numeric(as.vector(pseudotime)), y = as.numeric(as.vector(expression))), size = 4, color = "gray3") + 
+  geom_smooth(data = Myh8.df.scatter, aes( x = as.numeric(as.vector(pseudotime)), y = as.numeric(as.vector(expression))), size = 4, color = "gray3") + 
+  geom_smooth(data = Mirg.df.scatter, aes( x = as.numeric(as.vector(pseudotime)), y = as.numeric(as.vector(expression))), size = 4, color = "deepskyblue") +
+  xlab("Pseudotime") + ylab("Expression") + theme_classic()
+dev.off()
+```
+
+```{r}
+pdf(file = "path/filename.pdf" ,width = 9, height = 6)
+
+ggplot() + 
+  geom_smooth(data = Meg3.df.scatter, aes( x = as.numeric(as.vector(pseudotime)), y = as.numeric(as.vector(expression))), size = 4, color = "deepskyblue2") + 
+  geom_smooth(data = Rian.df.scatter, aes( x = as.numeric(as.vector(pseudotime)), y = as.numeric(as.vector(expression))), size = 4, color = "dodgerblue") + 
+  xlab("Pseudotime") + ylab("Expression") + theme_classic()
+dev.off()
+```
+
+
+
+### ### ### ### ### ### ### ### ### 
+### Slope analysis
+
+### Calculating slopes for glued lines between branch 1 and branch 2 OR branch 1 and branch 3
+```{r}
+slope.function.glued <- function(gene)
+{
+    gene.name <- paste(gene, "$", sep = "")
+    df <- cbind(processed.seurat.obj$pseudotime, processed.seurat.obj$condition.id, processed.seurat.obj$state.num, as.character(processed.seurat.obj$nuc.type), monocle.obj@assayData$exprs[grep(gene.name, row.names(monocle.obj)),]) 
+    
+    row.names(df) <- NULL
+    
+    df.tmp <- df[which(df[,5] > 0),]  
+    
+    df.short <- as.data.frame(df.tmp)
+    colnames(df.short) <- c("pseudotime",  'condition.id', "state", "nuc.type", "expression")
+   
+    branch1.ind <- grep("branch1", df.short$nuc.type)
+    branch2.ind <- grep("branch2", df.short$nuc.type)
+    branch3.ind <- grep("branch3", df.short$nuc.type)
+    
+    branch1.2.ind.combined <- c(branch1.ind, branch2.ind)
+    branch1.3.ind.combined <- c(branch1.ind, branch3.ind)
+    
+    branch1.2.slope.df.short <<- df.short[branch1.2.ind.combined,]
+    branch1.3.slope.df.short <<- df.short[branch1.3.ind.combined,]
+    
+    print("branch1:2 slope.short")  
+    print(summary(lm(as.numeric(as.vector(branch1.2.slope.df.short$pseudotime)) ~ as.numeric(as.vector(branch1.2.slope.df.short$expression))))$coefficients[2,1])
+    
+    print("branch1:3 slope.short")
+    print(summary(lm(as.numeric(as.vector(branch1.3.slope.df.short$pseudotime)) ~ as.numeric(as.vector(branch1.3.slope.df.short$expression))))$coefficients[2,1])
+
+
+
+    df.long <- as.data.frame(df)
+    colnames(df.long) <- c("pseudotime",  'condition.id', "state", "nuc.type", "expression")
+   
+    branch1.ind <- grep("branch1", df.long$nuc.type)
+    branch2.ind <- grep("branch2", df.long$nuc.type)
+    branch3.ind <- grep("branch3", df.long$nuc.type)
+    
+    branch1.2.ind.combined <- c(branch1.ind, branch2.ind)
+    branch1.3.ind.combined <- c(branch1.ind, branch3.ind)
+    
+    branch1.2.slope.df.long <<- df.long[branch1.2.ind.combined,]
+    branch1.3.slope.df.long <<- df.long[branch1.3.ind.combined,]
+    
+    print("branch1:2 slope.long")  
+    print(summary(lm(as.numeric(as.vector(branch1.2.slope.df.long$pseudotime)) ~ as.numeric(as.vector(branch1.2.slope.df.long$expression))))$coefficients[2,1])
+    
+    print("branch1:3 slope.long")
+    print(summary(lm(as.numeric(as.vector(branch1.3.slope.df.long$pseudotime)) ~ as.numeric(as.vector(branch1.3.slope.df.long$expression))))$coefficients[2,1])
+    }
+
+
+
+slope.function.glued("Esrrb") # Run individually for each gene and assemble into a table manually
+esrrb.glued.df1.short <- branch1.2.slope.df.short
+esrrb.glued.df2.short <- branch1.3.slope.df.short
+```
+
+### Plotting sloped lines
+```{r}
+slope.function.glued("Fgf1")
+glued.df1 <- branch1.2.slope.df
+glued.df2 <- branch1.3.slope.df
+
+
+ggplotdf1 <- glued.df1
+ggplotdf2 <- glued.df2
+
+ggplot() +
+  geom_smooth(data = ggplotdf1, aes(x = as.numeric(as.vector(pseudotime)), y = as.numeric(as.vector(expression))), color = "firebrick") + 
+  geom_smooth(data = ggplotdf2, aes(x = as.numeric(as.vector(pseudotime)), y = as.numeric(as.vector(expression))), color = "green")
+```
+
+### To make PDF
+```{r}
+gene.list <- c("Pax7", "Ncam1", "Ttn", "Neb", "Ckm", "Tmem38a", "Neb", "Tnni2",  "Fgf1", "Ptpn3", "Actn2", "Tbc1d4", "Atp1b1", "Rcan2", "Ppara", "Esrrb", "Mylk2", "Mylk4", "Sorbs2", "Prkag3", "Ampd1", "Myoz1", "Fmnl2","Pfkfb3", "Actn3", "Eya4", "Pde4d", "Gpd2", "Pvalb" , "Ppara")
+gene.list <- unique(gene.list)
+
+for (i in 1:length(gene.list))
+{
+  pseudotime.experssion.function.full(as.character(gene.list[i]))
+  alpha.val = 0.5
+
+
+  print(ggplot(df.scatter.export.full, aes(x = as.numeric(as.vector(pseudotime)), y = as.numeric(as.vector(expression)))) + 
+  geom_point(data=subset(df.scatter.export.full,nuc.type == 'branch3'),color = branch.color.scheme[2], alpha = alpha.val) + 
+  geom_smooth(data=subset(df.scatter.export.full,nuc.type == 'branch3'),color = branch.color.scheme[2], alpha = alpha.val) +
+  geom_point(data=subset(df.scatter.export.full,nuc.type == 'branch2'),color = branch.color.scheme[1], alpha = alpha.val) +
+  geom_smooth(data=subset(df.scatter.export.full,nuc.type == 'branch2'),color = branch.color.scheme[1], alpha = alpha.val) +
+  geom_point(data=subset(df.scatter.export.full,nuc.type == 'branch1'),color = branch.color.scheme[3], alpha = alpha.val)  +
+  geom_smooth(data=subset(df.scatter.export.full,nuc.type == 'branch1'),color = branch.color.scheme[3], alpha = alpha.val) +
+   xlab("Pseudotime") + ylab("Expression") + ggtitle(as.character(as.character(gene.list[i]))) + theme_classic())
+}
+```
+
+### Aged vs adult scatterplots of gene expression and pseudotime (Figure 5)
+```{r}
+Idents(object = processed.seurat.obj) = "condition.id"
+
+all.gene.names.vec <- row.names(processed.seurat.obj)
+all.cells.names.vec <- colnames(processed.seurat.obj)
+
+
+cells.pseudotime.state.condition.df <- as.data.frame(cbind(all.cells.names.vec,
+                                             processed.seurat.obj$pseudotime,
+                                             as.character(processed.seurat.obj$condition.id)))
+colnames(cells.pseudotime.state.condition.df) <- c("cell.names", "cell.pseudotime.val", "condition")
+
+
+pseudotime.expression.list <- list()
+for (i in 1:length(all.gene.names.vec))
+        {
+          genename <- all.gene.names.vec[i]
+          expr <- FetchData(object = processed.seurat.obj, vars = genename)
+          colnames(expr) <- "tmp1.genename"
+          tmp1 <-  which(x = expr$tmp1.genename > 0)
+          df.per.gene <- cells.pseudotime.state.condition.df[tmp1,]
+          
+          adult.pseudotime.mean <- mean(as.numeric(as.vector(df.per.gene$cell.pseudotime.val[which(df.per.gene$condition == "adult")])))
+          aged.pseudotime.mean <- mean(as.numeric(as.vector(df.per.gene$cell.pseudotime.val[which(df.per.gene$condition == "aged")])))
+          
+          adult.avg.expression <- AverageExpression(processed.seurat.obj, features = genename, verbose = F)$RNA$adult
+          aged.avg.expression <- AverageExpression(processed.seurat.obj, features = genename, verbose = F)$RNA$aged
+            
+          pseudotime.expression.list[[i]] <- c( as.character(genename), 
+                                                adult.pseudotime.mean , 
+                                                aged.pseudotime.mean ,
+                                                adult.avg.expression ,
+                                                aged.avg.expression)
+                                                                    
+          names(pseudotime.expression.list[[i]]) <- c("gene", "adult.pseudotime.mean", "aged.pseudotime.mean", "adult.avg.expression", "aged.avg.expression")
+          
+          timing.vec <- seq(from = 1, to = 21315, by = 3000)
+          if(i %in% timing.vec){print(i)}                                       
+}
+
+
+pseudotime.expression.df <- data.frame()
+for (i in 1:length(pseudotime.expression.list))
+{
+  pseudotime.expression.df[i,1:5] <- c(as.character(pseudotime.expression.list[[i]][1]),
+                                       as.numeric(as.vector(pseudotime.expression.list[[i]][2:5])))
+  
+  timing.vec <- seq(from = 1, to = 21315, by = 3000)
+  if(i %in% timing.vec){print(i)}
+}
+
+colnames(pseudotime.expression.df) <- c("gene", "adult.pseudotime.mean", "aged.pseudotime.mean", "adult.avg.expression", "aged.avg.expression")
+```
+
+### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
+### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ###  HEATMAPS ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### ### 
+
+### ### ### ### ### ### ### ### ### 
+### Generating heatmap of progenitor genes
+```{r}
+pdf(file = "path/filename.pdf" ,width = 7, height = 15)
+
+progenitor.branch.genes.small <- c( "Ncam1", "Pax7", "Meg3", "Lama2", "Myh3", "Myh8","Hs3st5", "Agbl1", "Rian", "Mirg", "Ttn", "Tmem38a", "Rbms3", "Kirrel3", "Peg3", "Runx1", "Neb",   "Phkg1", "Ebf1", "Col5a3", "Col3a1", "Pdgfra")
+
+plot_genes_branched_heatmap(monocle.obj[progenitor.branch.genes.small,],num_clusters =  2,branch_point = 7, show_rownames = T) ### 3/26/21 - use this one now
+
+dev.off()
+```
+
+### ### ### ### ### ### ### ### ### 
+### Generating heatmap for FAP/myogenic population genes
+```{r}
+FAP.branch1.genes <- c("Col6a1","Col6a3","Col4a1","Notch3","Emp1", "Cxcl12",  "Mrc2", "Fstl1", "Ebf1", "Col5a3", "Col3a1", "Pdgfra", "Dlc1", "Abca8a", "Tshz2", "Ror1", "Rhoj", "Ebf2", "Hmcn2", "Fbn1", "Lhfp", "Nav1", "Sox5", "Dcn", "Gsn", "Slit3", "Pde3a", "Egfr", "Gulp1", "Cald1", "Tgfbr3", "Bicc1", "Hs6st3", "Vcam1")
+FAP.branch1.genes <- unique(FAP.branch1.genes)
+
+
+pdf( file = "path/filename.pdf", width = 12, height = 15)
+
+plot_genes_branched_heatmap(monocle.obj[FAP.branch1.genes,],num_clusters =  2,branch_point = 7, show_rownames = T) 
+
+dev.off()
+
+```
+
+### ### ### ### ### ### ### ### ### 
+### Generating heatmap of myonuclear genes
+```{r}
+myonuclei.branches <- c("Pax7", "Ncam1","Myh1", "Myh4", "Pfkfb3", "Actn2", "Actn3", "Sorbs2", "Pvalb", "Tbc1d4", "Prkag3", "Atp1b1", "Ank2", "Ampd1", "Fgf1", "Phka1", "Pde4d", "Rcan2", "Tpm1", "Mylk4", "Eya4", "Gpd2", "Acss2", "Tmem233", "Lama2", "Ptpn3", "Fmnl2", "Esrrb","Myoz1", "Myoz3", "Tnni2", "Ttn",  "Neb")
+
+
+pdf(file = "path/filename.pdf" ,width = 10, height = 15)
+
+plot_genes_branched_heatmap(monocle.obj[myonuclei.branches,],num_clusters =  3,branch_point = 28, show_rownames = T) 
+
+dev.off()
+```

@@ -1,0 +1,234 @@
+### Manuscript: Myonuclear maturation dynamics in aged and adult regenerating mouse skeletal muscle
+
+### This R notebook goes through the initial data processesing prior to conducting Monocle pseudotime analysis. In this script: 
+#  1) Loading in cellraner ___ files and initial noise filtering using SoupX
+#  2) Integrating data in Seurat
+#  3) Dimensional reduction and cluster identification using Seurat
+
+# Load required packages
+```{r}
+library(Seurat)
+library(SoupX)
+library(monocle)
+library(cowplot)
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(gplots)
+library(limma)
+library(gridExtra)
+```
+
+### Read in 10x files and filter with SoupX
+```{r}
+cellranger.dir <- "~/path_to_cellranger_outputs/cellranger_outputs/"
+
+# Adult uninjured
+AU <- load10X(paste(cellranger.dir, "AU/outs/", sep = ""))
+count = autoEstCont(AU)
+out = adjustCounts(count)
+AU.obj <- CreateSeuratObject(counts = out, project = "snRNAseq", min.cells = 3, min.features = 200)
+
+# Old uninjured
+OU <- load10X(paste(cellranger.dir, "OU/outs/", sep = ""))
+count = autoEstCont(OU)
+out = adjustCounts(count)
+OU.obj <- CreateSeuratObject(counts = out, project = "snRNAseq", min.cells = 3, min.features = 200)
+
+# Adult 4 dpi
+Aday4 <- load10X(paste(cellranger.dir, "Aday4/outs/", sep = ""))
+count = autoEstCont(Aday4, tfidfMin = 0.5, forceAccept = T)
+out = adjustCounts(count)
+Aday4.obj <- CreateSeuratObject(counts = out, project = "snRNAseq", min.cells = 3, min.features = 200)
+
+# Adult 7 dpi
+Aday7 <- load10X(paste(cellranger.dir, "Aday7/outs/", sep = ""))
+count = autoEstCont(Aday7, tfidfMin = 0.5, forceAccept = T)
+out = adjustCounts(count)
+Aday7.obj <- CreateSeuratObject(counts = out, project = "snRNAseq", min.cells = 3, min.features = 200)
+
+# Old 4 dpi
+Oday4 <- load10X(paste(cellranger.dir, "Oday4/outs/", sep = ""))
+count = autoEstCont(Oday4,tfidfMin = 0.5, forceAccept = T)
+out = adjustCounts(count)
+Oday4.obj <- CreateSeuratObject(counts = out, project = "snRNAseq", min.cells = 3, min.features = 200)
+
+# Old 7 dpi
+Oday7 <- load10X(paste(cellranger.dir, "Oday7/outs/", sep = ""))
+count = autoEstCont(Oday7,tfidfMin = 0.5, forceAccept = T)
+out = adjustCounts(count)
+Oday7.obj <- CreateSeuratObject(counts = out, project = "snRNAseq", min.cells = 3, min.features = 200)
+```
+
+### Adding metadata before integrating seurat objects
+```{r}
+AU.obj@meta.data$cell.id <- 'AU'
+OU.obj@meta.data$cell.id <- 'OU'
+Aday4.obj@meta.data$cell.id <- 'Aday4'
+Aday7.obj@meta.data$cell.id <- 'Aday7'
+Oday4.obj@meta.data$cell.id <- 'Oday4'
+Oday7.obj@meta.data$cell.id <- 'Oday7'
+
+AU.obj@meta.data$condition.id <- 'adult'
+OU.obj@meta.data$condition.id <- 'aged'
+Aday4.obj@meta.data$condition.id <- 'adult'
+Aday7.obj@meta.data$condition.id <- 'adult'
+Oday4.obj@meta.data$condition.id <- 'aged'
+Oday7.obj@meta.data$condition.id <- 'aged'
+```
+
+### Pre-cleaning violin QC plots
+```{r}
+AU.obj[["percent.mt"]] <- PercentageFeatureSet(AU.obj, pattern = "mt-")
+VlnPlot(AU.obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+
+OU.obj[["percent.mt"]] <- PercentageFeatureSet(OU.obj, pattern = "mt-")
+VlnPlot(OU.obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+
+Oday4.obj[["percent.mt"]] <- PercentageFeatureSet(Oday4.obj, pattern = "mt-")
+VlnPlot(Oday4.obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+
+Aday4.obj[["percent.mt"]] <- PercentageFeatureSet(Aday4.obj, pattern = "mt-")
+VlnPlot(Aday4.obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+
+Aday7.obj[["percent.mt"]] <- PercentageFeatureSet(Aday7.obj, pattern = "mt-")
+VlnPlot(Aday7.obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+
+Oday7.obj[["percent.mt"]] <- PercentageFeatureSet(Oday7.obj, pattern = "mt-")
+VlnPlot(Oday7.obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+```
+
+### Cleaning data
+```{r}
+AU.obj <- subset(AU.obj, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < 5)
+OU.obj <- subset(OU.obj, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < 5)
+Aday4.obj <- subset(Aday4.obj, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < 5)
+Oday4.obj <- subset(Oday4.obj, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < 5)
+Aday7.obj <- subset(Aday7.obj, subset = nFeature_RNA > 200 & nFeature_RNA < 3000 & percent.mt < 2) 
+Oday7.obj <- subset(Oday7.obj, subset = nFeature_RNA > 200 & nFeature_RNA < 2500 & percent.mt < .2) 
+```
+
+### Post-cleaning violin QC plots
+```{r}
+VlnPlot(AU.obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+VlnPlot(OU.obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+VlnPlot(Oday4.obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+VlnPlot(Aday4.obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+VlnPlot(Aday7.obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+VlnPlot(Oday7.obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+```
+
+### Merging before integrating
+```{r}
+all.nuclear.merged <- merge(AU.obj, OU.obj)
+all.nuclear.merged <- merge(all.nuclear.merged, Aday4.obj)
+all.nuclear.merged <- merge(all.nuclear.merged, Oday4.obj)
+all.nuclear.merged <- merge(all.nuclear.merged, Aday7.obj)
+all.nuclear.merged <- merge(all.nuclear.merged, Oday7.obj)
+```
+
+### Integration anchors
+```{r}
+list1 <- SplitObject(all.nuclear.merged, split.by = "condition.id")
+
+anchors1 <- FindIntegrationAnchors(list1, dims = 1:20, anchor.features = 20000)
+
+all.nuclear.integrated <- IntegrateData(anchors1, dims = 1:20 )
+```
+
+### All nuclei data combined (NOT subsetted for muscle nuclei)
+```{r}
+umap.function.integrated <- function(x, dims, n.neighbors, min.dist, resolution) 
+    {
+    DefaultAssay(x) <- "integrated"
+    x <- ScaleData(x, verbose = FALSE)
+    x <- RunPCA(x, npcs = 30, verbose = FALSE)
+    x <- RunUMAP(x, reduction = "pca",  n.neighbors = 5, min.dist = .5, dims = dims) # Add these arguments into function up top? 
+    x <- FindNeighbors(x, reduction = "pca", dims = dims)
+    x <- FindClusters(x, resolution = 0.5)
+    #DefaultAssay(x) <- "RNA"
+}
+
+all.nuclear.integrated.umap <- umap.function.integrated(all.nuclear.integrated , n.neighbors = 1, min.dist = .09, dims = 1:30, resolution = 8)
+
+genelist <- c("Pax7", "Ttn", 'Tmem38a', 'Myh1', "Myh2", "Myh4", "Myh3", "Myh9", "Ache", "Col22a1", 'Pdgfra','Cacna1c', "Adgrf5")
+DimPlot(all.nuclear.integrated.umap, pt.size = 2, label = T)
+DimPlot(all.nuclear.integrated.umap, pt.size = 2, group.by = 'cell.id')
+FeaturePlot(all.nuclear.integrated.umap, features = genelist,  pt.size = 2)
+```
+
+### Naming clusters 
+```{r}
+all.nuclear.integrated.umap.named <- all.nuclear.integrated.umap
+
+new.cluster.ids <- c("Myogenic", #0
+                     "Myogenic", #1
+                     "Myogenic", #2
+                     "Myogenic", #3
+                     "Myogenic", #4
+                     "Myogenic",#5
+                     "Myogenic",#6
+                     "FAPs/immune", #7
+                     "Myogenic", #8
+                     "Smooth Muscle", #9
+                     "Endothelial" ,#10
+                     "Myogenic", #11
+                     "Myogenic", #12
+                     "Myogenic") #13
+
+names(new.cluster.ids) <- levels(all.nuclear.integrated.umap.named)
+all.nuclear.integrated.umap.named <- RenameIdents(all.nuclear.integrated.umap.named, new.cluster.ids)
+
+col.vec <- c("firebrick", "darkgoldenrod1", "forestgreen", "blue", "chocolate1", "black", "gray48")
+
+
+DimPlot(all.nuclear.integrated.umap.named, pt.size = 2, label = F, cols = col.vec)
+```
+
+# UMAP plotting by condition.id
+```{r}
+DimPlot(all.nuclear.integrated.umap.named, pt.size = .5, label = F, group.by = 'condition.id', cols = c("black", "red"))
+```
+
+# UMAP plotting by cell.id
+```{r}
+DimPlot(all.nuclear.integrated.umap.named, pt.size = .5, label = F, group.by = 'cell.id', cols = c("black", "red"))
+```
+
+### Filtering out non-myogenic nuclei from original files & UMAP
+```{r}
+muscle.cells.1 <- subset(AU.obj, Pax7 > 0 | Myod1 > 0 | Myog > 0 | Ckm > 0 |Mylk2 > 0)
+muscle.cells.2 <- subset(OU.obj, Pax7 > 0 | Myod1 > 0 | Myog > 0 | Ckm > 0 |Mylk2 > 0)
+muscle.cells.3 <- subset(Aday4.obj, Pax7 > 0 | Myod1 > 0 | Myog > 0 | Ckm > 0 |Mylk2 > 0)
+muscle.cells.4 <- subset(Oday4.obj, Pax7 > 0 | Myod1 > 0 | Myog > 0 | Ckm > 0 |Mylk2 > 0)
+muscle.cells.5 <- subset(Aday7.obj, Pax7 > 0 | Myod1 > 0 | Myog > 0 | Ckm > 0 |Mylk2 > 0)
+muscle.cells.6 <- subset(Oday7.obj, Pax7 > 0 | Myod1 > 0 | Myog > 0 | Ckm > 0 |Mylk2 > 0)
+
+all.nuclear.subset.seurat <- merge(muscle.cells.1, muscle.cells.2)
+all.nuclear.subset.seurat <- merge(all.nuclear.subset.seurat, muscle.cells.3)
+all.nuclear.subset.seurat <- merge(all.nuclear.subset.seurat, muscle.cells.4)
+all.nuclear.subset.seurat <- merge(all.nuclear.subset.seurat, muscle.cells.5)
+all.nuclear.subset.seurat <- merge(all.nuclear.subset.seurat, muscle.cells.6)
+
+list1 <- SplitObject(all.nuclear.subset.seurat, split.by = "condition.id")
+
+anchors1 <- FindIntegrationAnchors(list1, dims = 1:20, anchor.features = 20000)
+
+nuclear.subset.integrated <- IntegrateData(anchors1, dims = 1:20 )
+
+umap.function.integrated <- function(x, dims, n.neighbors, min.dist, resolution) 
+    {
+    DefaultAssay(x) <- "integrated"
+    x <- ScaleData(x, verbose = FALSE)
+    x <- RunPCA(x, npcs = 30, verbose = FALSE)
+    x <- RunUMAP(x, reduction = "pca",  n.neighbors = 5, min.dist = .5, dims = dims) # Add these arguments into function up top? 
+    x <- FindNeighbors(x, reduction = "pca", dims = dims)
+    x <- FindClusters(x, resolution = 0.5)
+    #DefaultAssay(x) <- "RNA"
+}
+
+nuclear.subset.integrated.umap <- umap.function.integrated(nuclear.subset.integrated , n.neighbors = 1, min.dist = .09, dims = 1:30, resolution = 8)
+
+
+DimPlot(nuclear.subset.integrated.umap, pt.size = .5, label = F, group.by = 'condition.id', cols = c("black", "red"))
+```
